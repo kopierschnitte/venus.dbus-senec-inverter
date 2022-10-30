@@ -39,19 +39,20 @@ class DbusSenecInverterService:
     # Create the mandatory objects
     self._dbusservice.add_path('/DeviceInstance', deviceinstance)
     #self._dbusservice.add_path('/ProductId', 16) # value used in ac_sensor_bridge.cpp of dbus-cgwacs
-    #self._dbusservice.add_path('/ProductId', 0xFFFF) # id assigned by Victron Support from SDM630v2.py
-    self._dbusservice.add_path('/ProductId', 126) # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
-    self._dbusservice.add_path('/DeviceType', 345) # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
+    self._dbusservice.add_path('/ProductId', 0xFFFF) # id assigned by Victron Support from SDM630v2.py
+    #self._dbusservice.add_path('/ProductId', 126) # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
+    #self._dbusservice.add_path('/DeviceType', 345) # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
     self._dbusservice.add_path('/ProductName', productname)
     self._dbusservice.add_path('/CustomName', productname)    
     self._dbusservice.add_path('/Latency', None)    
     self._dbusservice.add_path('/FirmwareVersion', 0.1)
     self._dbusservice.add_path('/HardwareVersion', 0)
     self._dbusservice.add_path('/Connected', 1)
+    self._dbusservice.add_path('/StatusCode', 0)
     #self._dbusservice.add_path('/ErrorCode', 0)
     #self._dbusservice.add_path('/MaxPower', 9000)
     #self._dbusservice.add_path('/Role', 'grid')
-    #self._dbusservice.add_path('/Position', 1) # normaly only needed for pvinverter
+    self._dbusservice.add_path('/Position', 0) # normaly only needed for pvinverter
     self._dbusservice.add_path('/Serial', self._getSenecSerial())
     self._dbusservice.add_path('/UpdateIndex', 0)
  
@@ -111,7 +112,7 @@ class DbusSenecInverterService:
   def _getSenecInverterData(self):
     URL = self._getSenecStatusUrl()
     #payload = "{ \"FACTORY\" : {} }"
-    payload = "{\n            \"FACTORY\" : {},\n            \"PV1\" : {}\n}\n\n"
+    payload = "{\n            \"FACTORY\" : {},\n            \"ENERGY\" : {},\n            \"PM1OBJ1\" : {},\n            \"STATISTIC\" : {},\n            \"PV1\" : {}\n}\n\n"
 
     headers = {}
 
@@ -141,36 +142,59 @@ class DbusSenecInverterService:
     #struct.unpack('!f', (val[3:]).decode('hex'))[0]
  
   def _signOfLife(self):
-    logging.info("--- Start: sign of life ---")
-    logging.info("Last _update() call: %s" % (self._lastUpdate))
+    ##logging.info("--- Start: sign of life ---")
+    ##logging.info("Last _update() call: %s" % (self._lastUpdate))
     ##logging.info("Last '/Ac/Power': %s" % (self._dbusservice['/Ac/Power']))
-    logging.info("--- End: sign of life ---")
+    ##logging.info("--- End: sign of life ---")
     return True
  
   def _update(self):   
     try:
        #get data from Senec
        meter_data = self._getSenecInverterData()
+
+       int_iv_sum = self._floatFromHex(meter_data['PV1']['MPP_POWER'][0]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][1]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][2])        
        
+       # Battery: Negative = discharging, positive = charging 
+       battery_sum = self._floatFromHex(meter_data['ENERGY']['GUI_BAT_DATA_POWER'])
+
+       # output of the entire Senec system
+       senec_output = int_iv_sum - battery_sum
+
+       # total inverter meter
+       meter_iv = self._floatFromHex(meter_data['STATISTIC']['LIVE_PV_GEN'])
+
+       # total battery discharge meter
+       meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_DISCHARGE'])
+
+       # total battery charge meter
+       meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_CHARGE'])
+
+
        #send data to DBus
-       self._dbusservice['/Ac/Power'] = self._floatFromHex(meter_data['PV1']['MPP_POWER'][0]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][1]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][2])
-       self._dbusservice['/Ac/L1/Voltage'] = self._floatFromHex(meter_data['PV1']['MPP_VOL'][0])
-       self._dbusservice['/Ac/L2/Voltage'] = self._floatFromHex(meter_data['PV1']['MPP_VOL'][1])
-       self._dbusservice['/Ac/L3/Voltage'] = self._floatFromHex(meter_data['PV1']['MPP_VOL'][2])
-       self._dbusservice['/Ac/L1/Current'] = self._floatFromHex(meter_data['PV1']['MPP_CUR'][0])
-       self._dbusservice['/Ac/L2/Current'] = self._floatFromHex(meter_data['PV1']['MPP_CUR'][1])
-       self._dbusservice['/Ac/L3/Current'] = self._floatFromHex(meter_data['PV1']['MPP_CUR'][2])
-       self._dbusservice['/Ac/L1/Power'] = self._floatFromHex(meter_data['PV1']['MPP_POWER'][0])
-       self._dbusservice['/Ac/L2/Power'] = self._floatFromHex(meter_data['PV1']['MPP_POWER'][1])
-       self._dbusservice['/Ac/L3/Power'] = self._floatFromHex(meter_data['PV1']['MPP_POWER'][2])
-       #self._dbusservice['/StatusCode'] = 7
+       self._dbusservice['/Ac/Power'] = senec_output
+       self._dbusservice['/Ac/L1/Voltage'] = (self._floatFromHex(meter_data['PM1OBJ1']['U_AC'][0]))
+       self._dbusservice['/Ac/L1/Current'] = senec_output / (self._floatFromHex(meter_data['PM1OBJ1']['U_AC'][0]))
+       self._dbusservice['/Ac/L1/Power'] = senec_output
+       self._dbusservice['/Ac/L1/Energy/Forward'] = meter_iv
+       
+       self._dbusservice['/Ac/L2/Voltage'] = 0
+       self._dbusservice['/Ac/L2/Current'] = 0
+       self._dbusservice['/Ac/L2/Power'] = 0
+
+       self._dbusservice['/Ac/L3/Voltage'] = 0
+       self._dbusservice['/Ac/L3/Current'] = 0
+       self._dbusservice['/Ac/L3/Power'] = 0
+
+
        ##self._dbusservice['/Ac/L1/Energy/Forward'] = (meter_data['emeters'][0]['total']/1000)
        ##self._dbusservice['/Ac/L2/Energy/Forward'] = (meter_data['emeters'][1]['total']/1000)
        ##self._dbusservice['/Ac/L3/Energy/Forward'] = (meter_data['emeters'][2]['total']/1000)
        ##self._dbusservice['/Ac/L1/Energy/Reverse'] = (meter_data['emeters'][0]['total_returned']/1000) 
        ##self._dbusservice['/Ac/L2/Energy/Reverse'] = (meter_data['emeters'][1]['total_returned']/1000) 
-       ##self._dbusservice['/Ac/L3/Energy/Reverse'] = (meter_data['emeters'][2]['total_returned']/1000) 
-       ##self._dbusservice['/Ac/Energy/Forward'] = self._dbusservice['/Ac/L1/Energy/Forward'] + self._dbusservice['/Ac/L2/Energy/Forward'] + self._dbusservice['/Ac/L3/Energy/Forward']
+       ##self._dbusservice['/Ac/L3/Energy/Reverse'] = (meter_data['emeters'][2]['total_returned']/1000)
+ 
+       self._dbusservice['/Ac/Energy/Forward'] = meter_iv
        ##self._dbusservice['/Ac/Energy/Reverse'] = self._dbusservice['/Ac/L1/Energy/Reverse'] + self._dbusservice['/Ac/L2/Energy/Reverse'] + self._dbusservice['/Ac/L3/Energy/Reverse'] 
        
        #logging
@@ -226,8 +250,9 @@ def main():
       #start our main-service
       pvac_output = DbusSenecInverterService(
         servicename='com.victronenergy.pvinverter.senec',
-        deviceinstance=263,
+        deviceinstance=41,
         paths={
+	  '/Ac/Energy/Forward': {'initial': None, 'textformat': _kwh}, # energy produced by pv inverter
           '/Ac/Power': {'initial': 0, 'textformat': _w},
           
           '/Ac/L1/Voltage': {'initial': 0, 'textformat': _v},
@@ -239,10 +264,9 @@ def main():
           '/Ac/L1/Power': {'initial': 0, 'textformat': _w},
           '/Ac/L2/Power': {'initial': 0, 'textformat': _w},
           '/Ac/L3/Power': {'initial': 0, 'textformat': _w},
-          '/StatusCode': {'initial': 7, 'textformat': ''},
-          '/ErrorCode': {'initial': 0, 'textformat': ''},
-	  '/MaxPower': {'initial': 0, 'textformat': _w},
-          '/Position': {'initial': 1, 'textformat': ''},
+          '/Ac/L1/Energy/Forward': {'initial': None, 'textformat': _kwh},
+          '/Ac/L2/Energy/Forward': {'initial': None, 'textformat': _kwh},
+          '/Ac/L3/Energy/Forward': {'initial': None, 'textformat': _kwh},
         })
      
       logging.info('Connected to dbus, and switching over to gobject.MainLoop() (= event based)')
