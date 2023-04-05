@@ -154,12 +154,16 @@ class DbusSenecInverterService:
        meter_data = self._getSenecInverterData()
 
        int_iv_sum = self._floatFromHex(meter_data['PV1']['MPP_POWER'][0]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][1]) + self._floatFromHex(meter_data['PV1']['MPP_POWER'][2])        
-       
+       #int_iv_sum = self._floatFromHex(meter_data['ENERGY']['GUI_INVERTER_POWER'])
+
        # Battery: Negative = discharging, positive = charging 
        battery_sum = self._floatFromHex(meter_data['ENERGY']['GUI_BAT_DATA_POWER'])
 
        # output of the entire Senec system
-       senec_output = int_iv_sum - battery_sum
+       if battery_sum <= 0:
+        senec_output = int_iv_sum + (battery_sum * -1)
+       elif battery_sum > 0:
+        senec_output = int_iv_sum - battery_sum
 
        # total inverter meter
        meter_iv = self._floatFromHex(meter_data['STATISTIC']['LIVE_PV_GEN'])
