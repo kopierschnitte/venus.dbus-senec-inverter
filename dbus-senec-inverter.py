@@ -13,6 +13,7 @@ else:
 import sys
 import time
 import requests # for http GET
+from requests.exceptions import ConnectTimeout
 import configparser # for config/ini file
 import struct
  
@@ -102,7 +103,7 @@ class DbusSenecInverterService:
     accessType = config['DEFAULT']['AccessType']
     
     if accessType == 'OnPremise': 
-        URL = "http://%s/lala.cgi" % (config['ONPREMISE']['Host'])
+        URL = "https://%s/lala.cgi" % (config['ONPREMISE']['Host'])
     else:
         raise ValueError("AccessType %s is not supported" % (config['DEFAULT']['AccessType']))
     
@@ -116,7 +117,11 @@ class DbusSenecInverterService:
 
     headers = {}
 
-    meter_r = requests.request("POST", URL, headers=headers, data=payload)
+    try:
+    	meter_r = requests.request("POST", URL, headers=headers, data=payload, verify=False)
+    except ConnectTimeout:
+    	logging.info('Request has timed out')
+
     
     # check for response
     if not meter_r:
@@ -166,13 +171,18 @@ class DbusSenecInverterService:
         senec_output = int_iv_sum - battery_sum
 
        # total inverter meter
-       meter_iv = self._floatFromHex(meter_data['STATISTIC']['LIVE_PV_GEN'])
+       #meter_iv = self._floatFromHex(meter_data['STATISTIC']['LIVE_PV_GEN'])
 
        # total battery discharge meter
-       meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_DISCHARGE'])
+       #meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_DISCHARGE'])
 
        # total battery charge meter
-       meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_CHARGE'])
+       #meter_discharge = self._floatFromHex(meter_data['STATISTIC']['LIVE_BAT_CHARGE'])
+
+       #logging.info("int_iv_sum: %s" % (int_iv_sum))
+       #logging.info("battery_sum: %s" % (battery_sum))
+       #logging.info("senec_output: %s" % (senec_output))
+
 
 
        #send data to DBus
@@ -180,7 +190,7 @@ class DbusSenecInverterService:
        self._dbusservice['/Ac/L1/Voltage'] = (self._floatFromHex(meter_data['PM1OBJ1']['U_AC'][0]))
        self._dbusservice['/Ac/L1/Current'] = senec_output / (self._floatFromHex(meter_data['PM1OBJ1']['U_AC'][0]))
        self._dbusservice['/Ac/L1/Power'] = senec_output
-       self._dbusservice['/Ac/L1/Energy/Forward'] = meter_iv
+       #self._dbusservice['/Ac/L1/Energy/Forward'] = meter_iv
        
        self._dbusservice['/Ac/L2/Voltage'] = 0
        self._dbusservice['/Ac/L2/Current'] = 0
@@ -198,7 +208,7 @@ class DbusSenecInverterService:
        ##self._dbusservice['/Ac/L2/Energy/Reverse'] = (meter_data['emeters'][1]['total_returned']/1000) 
        ##self._dbusservice['/Ac/L3/Energy/Reverse'] = (meter_data['emeters'][2]['total_returned']/1000)
  
-       self._dbusservice['/Ac/Energy/Forward'] = meter_iv
+       #self._dbusservice['/Ac/Energy/Forward'] = meter_iv
        ##self._dbusservice['/Ac/Energy/Reverse'] = self._dbusservice['/Ac/L1/Energy/Reverse'] + self._dbusservice['/Ac/L2/Energy/Reverse'] + self._dbusservice['/Ac/L3/Energy/Reverse'] 
        
        #logging
