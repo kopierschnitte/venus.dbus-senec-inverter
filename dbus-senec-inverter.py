@@ -113,12 +113,12 @@ class DbusSenecInverterService:
   def _getSenecInverterData(self):
     URL = self._getSenecStatusUrl()
     #payload = "{ \"FACTORY\" : {} }"
-    payload = "{\n            \"FACTORY\" : {},\n            \"ENERGY\" : {},\n            \"PM1OBJ1\" : {},\n            \"STATISTIC\" : {},\n            \"PV1\" : {}\n}\n\n"
+    payload = "{\n            \"FACTORY\" : {},\n            \"ENERGY\" : {},\n            \"PM1OBJ1\" : {},\n            \"PV1\" : {}\n}\n\n"
 
     headers = {}
 
     try:
-    	meter_r = requests.request("POST", URL, headers=headers, data=payload, verify=False)
+    	meter_r = requests.request("POST", URL, headers=headers, data=payload, verify=False, timeout=5)
     except ConnectTimeout:
     	logging.info('Request has timed out')
 
